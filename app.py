@@ -105,10 +105,10 @@ def perform_search(query: str, top_k: int, embedding_model) -> Tuple[Optional[Li
             # Cosine similarity search using pgvector <=> operator
             search_query = """
                 SELECT 
-                    d.id, 
+                    d.id,
                     d.location, 
                     d.headline, 
-                    d.embedding_text, 
+                    TRIM(CONCAT(COALESCE(d.description, ''), '. ', COALESCE(d.instruction, ''))) AS embedding_text,
                     e.chunk_text,
                     1 - (e.embedding <=> %s::vector) AS similarity
                 FROM weather_alert_embeddings e
