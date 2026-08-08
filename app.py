@@ -1,5 +1,6 @@
 import os
 import base64
+import time
 from urllib.parse import urlparse
 from typing import Dict, Any, List
 
@@ -9,17 +10,26 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from databricks.sdk import WorkspaceClient
 
-# Initialize Flask app
-app = Flask(__name__)
+# Initialize Flask app with explicit template folder
+template_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
+app = Flask(__name__, template_folder=template_dir)
+print(f"📁 Template directory: {template_dir}")
 
 # Module-level model loading (happens once at startup)
-print("Loading embedding model at module level...")
+print("="*60)
+print("🚀 Weather Retrieval Service Starting...")
+print("="*60)
+print("📦 Loading embedding model (may take 30-60 seconds on first run)...")
 os.environ["HF_HOME"] = "/tmp/.cache/huggingface"
 os.environ["TRANSFORMERS_CACHE"] = "/tmp/.cache/huggingface"
 os.environ["HF_HUB_CACHE"] = "/tmp/.cache/huggingface"
 
+start_time = time.time()
 EMBEDDING_MODEL = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-print("✅ Embedding model loaded successfully")
+load_time = time.time() - start_time
+print(f"✅ Embedding model loaded in {load_time:.1f}s")
+print("🎉 Service ready!")
+print("="*60)
 
 # Database configuration
 w = WorkspaceClient()
@@ -51,7 +61,16 @@ def get_lakebase_connection():
 @app.route('/', methods=['GET'])
 def home():
     """Root endpoint - landing page."""
-    return render_template('index.html')
+    try:
+        return render_template('index.html')
+    except Exception as e:
+        # If template fails, return error info
+        return jsonify({
+            "error": "Template rendering failed",
+            "details": str(e),
+            "template_folder": app.template_folder,
+            "available_templates": os.listdir(app.template_folder) if os.path.exists(app.template_folder) else "Template folder not found"
+        }), 500
 
 
 @app.route('/health', methods=['GET'])
