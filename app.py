@@ -1,15 +1,13 @@
 import os
-import base64
 import time
-import json
-from urllib.parse import urlparse
 from typing import Dict, Any, List, Tuple, Optional
 
 import streamlit as st
 import psycopg2
 import numpy as np
 from sentence_transformers import SentenceTransformer
-from databricks.sdk import WorkspaceClient
+
+import lakebase
 
 # Set page config - must be first Streamlit command
 st.set_page_config(
@@ -37,33 +35,6 @@ def load_embedding_model():
     print("🎉 Service ready!")
     print("="*60)
     return model
-
-# Database configuration
-w = WorkspaceClient()
-
-
-def get_lakebase_connection():
-    """Get Lakebase PostgreSQL connection using Databricks secret."""
-    try:
-        # Get secret scope and key from environment variables
-        secret_scope = os.getenv('LAKEBASE_SECRET_SCOPE', 'database')
-        secret_key = os.getenv('LAKEBASE_SECRET_KEY', 'lakebase-url')
-        secret = w.secrets.get_secret(scope=secret_scope, key=secret_key)
-        lakebase_url = base64.b64decode(secret.value).decode("utf-8")
-        parsed = urlparse(lakebase_url)
-        
-        conn = psycopg2.connect(
-            host=parsed.hostname,
-            port=parsed.port or 5432,
-            dbname=parsed.path.lstrip('/'),
-            user=parsed.username,
-            password=parsed.password,
-            sslmode='require'
-        )
-        return conn
-    except Exception as e:
-        raise Exception(f"Failed to connect to Lakebase: {str(e)}")
-
 
 def perform_search(query: str, top_k: int, embedding_model) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
     """
@@ -95,58 +66,47 @@ def perform_search(query: str, top_k: int, embedding_model) -> Tuple[Optional[Li
         embedding_str = '[' + ','.join(map(str, embedding_list)) + ']'
         
         # Connect to database and execute search
-        conn = None
-        cursor = None
-        
         try:
-            conn = get_lakebase_connection()
-            cursor = conn.cursor()
-            
-            # Cosine similarity search using pgvector <=> operator
-            search_query = """
-                SELECT 
-                    d.id,
-                    d.location, 
-                    d.headline, 
-                    TRIM(CONCAT(COALESCE(d.description, ''), '. ', COALESCE(d.instruction, ''))) AS embedding_text,
-                    e.chunk_text,
-                    1 - (e.embedding <=> %s::vector) AS similarity
-                FROM weather_alert_embeddings e
-                JOIN weather_alert_documents d ON d.id = e.alert_id
-                ORDER BY e.embedding <=> %s::vector
-                LIMIT %s;
-            """
-            
-            cursor.execute(search_query, (embedding_str, embedding_str, top_k))
-            rows = cursor.fetchall()
-            
-            # Handle empty results
-            if not rows:
-                return [], "No results found. The weather_embeddings table may be empty or no data has been synced yet."
-            
-            # Format results
-            results = []
-            for row in rows:
-                results.append({
-                    "id": row[0],
-                    "location": row[1],
-                    "headline": row[2],
-                    "narrative_text": row[3],
-                    "chunk_text": row[4],
-                    "similarity": float(row[5])  # Convert to Python float
-                })
-            
-            return results, None
+            with lakebase.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    # Cosine similarity search using pgvector <=> operator
+                    search_query = """
+                        SELECT 
+                            d.id,
+                            d.location, 
+                            d.headline, 
+                            TRIM(CONCAT(COALESCE(d.description, ''), '. ', COALESCE(d.instruction, ''))) AS embedding_text,
+                            e.chunk_text,
+                            1 - (e.embedding <=> %s::vector) AS similarity
+                        FROM weather_alert_embeddings e
+                        JOIN weather_alert_documents d ON d.id = e.alert_id
+                        ORDER BY e.embedding <=> %s::vector
+                        LIMIT %s;
+                    """
+                    
+                    cursor.execute(search_query, (embedding_str, embedding_str, top_k))
+                    rows = cursor.fetchall()
+                    
+                    # Handle empty results
+                    if not rows:
+                        return [], "No results found. The weather_embeddings table may be empty or no data has been synced yet."
+                    
+                    # Format results
+                    results = []
+                    for row in rows:
+                        results.append({
+                            "id": row[0],
+                            "location": row[1],
+                            "headline": row[2],
+                            "narrative_text": row[3],
+                            "chunk_text": row[4],
+                            "similarity": float(row[5])  # Convert to Python float
+                        })
+                    
+                    return results, None
             
         except psycopg2.Error as db_error:
             return None, f"Database query failed: {str(db_error)}"
-            
-        finally:
-            # Always close cursor and connection
-            if cursor:
-                cursor.close()
-            if conn:
-                conn.close()
     
     except Exception as e:
         return None, f"Internal server error: {str(e)}"
