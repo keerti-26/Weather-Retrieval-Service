@@ -92,15 +92,16 @@ def perform_search(query: str, top_k: int, embedding_model) -> Tuple[Optional[Li
                         return [], "No results found. The weather_embeddings table may be empty or no data has been synced yet."
                     
                     # Format results
+                    # Note: lakebase.get_connection() uses RealDictCursor, so rows are dictionaries
                     results = []
                     for row in rows:
                         results.append({
-                            "id": row[0],
-                            "location": row[1],
-                            "headline": row[2],
-                            "narrative_text": row[3],
-                            "chunk_text": row[4],
-                            "similarity": float(row[5])  # Convert to Python float
+                            "id": row['id'],
+                            "location": row['location'],
+                            "headline": row['headline'],
+                            "narrative_text": row['embedding_text'],
+                            "chunk_text": row['chunk_text'],
+                            "similarity": float(row['similarity'])
                         })
                     
                     return results, None
