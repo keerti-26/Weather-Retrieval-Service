@@ -3,7 +3,7 @@ import base64
 from urllib.parse import urlparse
 from typing import Dict, Any, List
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 import psycopg2
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -46,6 +46,12 @@ def get_lakebase_connection():
         return conn
     except Exception as e:
         raise Exception(f"Failed to connect to Lakebase: {str(e)}")
+
+
+@app.route('/', methods=['GET'])
+def home():
+    """Root endpoint - landing page."""
+    return render_template('index.html')
 
 
 @app.route('/health', methods=['GET'])

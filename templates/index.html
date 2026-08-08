@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Weather Retrieval Service</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+        h1 { color: #FF3621; }
+        .endpoint { background: #f4f4f4; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .method { color: #0066cc; font-weight: bold; }
+        code { background: #e8e8e8; padding: 2px 6px; border-radius: 3px; }
+        .test-form { background: #fff3cd; padding: 20px; border-radius: 5px; margin-top: 20px; }
+        input, textarea { width: 100%; padding: 8px; margin: 5px 0; box-sizing: border-box; }
+        button { background: #FF3621; color: white; padding: 10px 20px; border: none; cursor: pointer; border-radius: 4px; }
+        button:hover { background: #cc2b1a; }
+        #result { background: #d4edda; padding: 15px; margin-top: 10px; border-radius: 5px; display: none; }
+        pre { white-space: pre-wrap; word-wrap: break-word; }
+    </style>
+</head>
+<body>
+    <h1>🌦️ Weather Retrieval Service</h1>
+    <p>Semantic search over weather alerts using vector embeddings.</p>
+    
+    <h2>Available Endpoints</h2>
+    
+    <div class="endpoint">
+        <span class="method">GET</span> <code>/health</code>
+        <p>Health check endpoint - returns service status and model info</p>
+    </div>
+    
+    <div class="endpoint">
+        <span class="method">POST</span> <code>/weather/search</code>
+        <p>Semantic search endpoint</p>
+        <p><strong>Body:</strong> <code>{"query": "your search text", "top_k": 5}</code></p>
+        <p><strong>Returns:</strong> Top matching weather alerts with similarity scores</p>
+    </div>
+    
+    <div class="test-form">
+        <h3>🧪 Test Search Endpoint</h3>
+        <label>Query:</label>
+        <input type="text" id="query" placeholder="e.g., risk of flooding near rivers" value="risk of flooding near rivers">
+        
+        <label>Top K Results:</label>
+        <input type="number" id="top_k" value="5" min="1" max="20">
+        
+        <button onclick="testSearch()">Search</button>
+        
+        <div id="result"></div>
+    </div>
+    
+    <script>
+        async function testSearch() {
+            const query = document.getElementById('query').value;
+            const top_k = parseInt(document.getElementById('top_k').value);
+            const resultDiv = document.getElementById('result');
+            
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = 'Searching...';
+            
+            try {
+                const response = await fetch('/weather/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query, top_k })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.style.background = '#d4edda';
+                    resultDiv.innerHTML = '<h4>Results:</h4><pre>' + JSON.stringify(data, null, 2) + '</pre>';
+                } else {
+                    resultDiv.style.background = '#f8d7da';
+                    resultDiv.innerHTML = '<h4>Error:</h4><pre>' + JSON.stringify(data, null, 2) + '</pre>';
+                }
+            } catch (error) {
+                resultDiv.style.background = '#f8d7da';
+                resultDiv.innerHTML = '<h4>Error:</h4><span style="color: red;">' + error.message + '</span>';
+            }
+        }
+    </script>
+</body>
+</html>
