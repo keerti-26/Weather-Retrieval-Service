@@ -28,7 +28,10 @@ w = WorkspaceClient()
 def get_lakebase_connection():
     """Get Lakebase PostgreSQL connection using Databricks secret."""
     try:
-        secret = w.secrets.get_secret(scope="database", key="lakebase-url")
+        # Get secret scope and key from environment variables
+        secret_scope = os.getenv('LAKEBASE_SECRET_SCOPE', 'database')
+        secret_key = os.getenv('LAKEBASE_SECRET_KEY', 'lakebase-url')
+        secret = w.secrets.get_secret(scope=secret_scope, key=secret_key)
         lakebase_url = base64.b64decode(secret.value).decode("utf-8")
         parsed = urlparse(lakebase_url)
         
@@ -49,6 +52,19 @@ def get_lakebase_connection():
 def health_check():
     """Health check endpoint."""
     return jsonify({"status": "healthy", "model": "all-MiniLM-L6-v2"}), 200
+
+
+@app.route('/', methods=['GET'])
+def home():
+    """Root endpoint."""
+    return jsonify({
+        "service": "Weather Retrieval Service",
+        "status": "running",
+        "endpoints": {
+            "health": "/health",
+            "search": "/weather/search (POST)"
+        }
+    }), 200
 
 
 @app.route('/weather/search', methods=['POST'])
@@ -171,4 +187,6 @@ def search_weather():
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Use APP_PORT environment variable provided by Databricks Apps
+    port = int(os.getenv('APP_PORT', 8080))
+    app.run(host='0.0.0.0', port=port, debug=False)
