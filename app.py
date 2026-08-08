@@ -108,7 +108,7 @@ def perform_search(query: str, top_k: int, embedding_model) -> Tuple[Optional[Li
                     d.id, 
                     d.location, 
                     d.headline, 
-                    d.narrative_text, 
+                    d.embedding_text, 
                     e.chunk_text,
                     1 - (e.embedding <=> %s::vector) AS similarity
                 FROM weather_alert_embeddings e
