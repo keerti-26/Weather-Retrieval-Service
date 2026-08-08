@@ -1,199 +1,237 @@
+"""Flask REST API for Weather Retrieval Service."""
 import os
-import time
-from typing import Dict, Any, List, Tuple, Optional
+import logging
+from typing import Dict, Any, List, Tuple
 
-import streamlit as st
-import psycopg2
+from flask import Flask, request, jsonify
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
 import lakebase
+from weather_client import NWSClient
+from embedding_utils import batch_insert_alerts_to_lakebase
 
-# Set page config - must be first Streamlit command
-st.set_page_config(
-    page_title="Weather Retrieval Service",
-    page_icon="🌦️",
-    layout="wide"
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+logger = logging.getLogger(__name__)
 
-# Cache the embedding model to load only once
-@st.cache_resource
-def load_embedding_model():
-    """Load embedding model once and cache it."""
-    print("="*60)
-    print("🚀 Weather Retrieval Service Starting...")
-    print("="*60)
-    print("📦 Loading embedding model (may take 30-60 seconds on first run)...")
-    os.environ["HF_HOME"] = "/tmp/.cache/huggingface"
-    os.environ["TRANSFORMERS_CACHE"] = "/tmp/.cache/huggingface"
-    os.environ["HF_HUB_CACHE"] = "/tmp/.cache/huggingface"
+# Initialize Flask app
+app = Flask(__name__)
+
+# Initialize NWS client
+nws_client = NWSClient()
+
+# Load embedding model once at startup
+os.environ["HF_HOME"] = "/tmp/.cache/huggingface"
+os.environ["TRANSFORMERS_CACHE"] = "/tmp/.cache/huggingface"
+os.environ["HF_HUB_CACHE"] = "/tmp/.cache/huggingface"
+
+logger.info("Loading embedding model...")
+embedding_model = SentenceTransformer(
+    "sentence-transformers/all-MiniLM-L6-v2",
+    cache_folder="/tmp/.cache/huggingface"
+)
+logger.info("Embedding model loaded successfully")
+
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint."""
+    return jsonify({
+        "status": "healthy",
+        "service": "Weather Retrieval Service",
+        "model": "sentence-transformers/all-MiniLM-L6-v2"
+    }), 200
+
+
+@app.route('/weather/sync', methods=['POST'])
+def sync_weather_alerts():
+    """
+    Sync weather alerts from NWS API into Lakebase.
     
-    start_time = time.time()
-    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-    load_time = time.time() - start_time
-    print(f"✅ Embedding model loaded in {load_time:.1f}s")
-    print("🎉 Service ready!")
-    print("="*60)
-    return model
+    Request body:
+    {
+        "cities": ["Boston, MA", "Austin, TX", "New York, NY"],
+        "state_codes": ["MA", "TX"]  # optional, alternative to cities
+    }
+    
+    Returns:
+    {
+        "success": true,
+        "alerts_fetched": 15,
+        "alerts_inserted": 12,
+        "message": "Successfully synced weather alerts"
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                "success": False,
+                "error": "Request body must be JSON"
+            }), 400
+        
+        cities = data.get('cities', [])
+        state_codes = data.get('state_codes', [])
+        
+        if not cities and not state_codes:
+            return jsonify({
+                "success": False,
+                "error": "Must provide either 'cities' or 'state_codes'"
+            }), 400
+        
+        # Fetch alerts
+        all_alerts = []
+        
+        if cities:
+            logger.info(f"Fetching alerts for {len(cities)} cities")
+            all_alerts.extend(nws_client.fetch_alerts_for_cities(cities))
+        
+        if state_codes:
+            logger.info(f"Fetching alerts for {len(state_codes)} state codes")
+            for state_code in state_codes:
+                alerts = nws_client.fetch_active_alerts(state_code)
+                normalized = nws_client.normalize_alerts_for_db(state_code, alerts)
+                all_alerts.extend(normalized)
+        
+        if not all_alerts:
+            return jsonify({
+                "success": True,
+                "alerts_fetched": 0,
+                "alerts_inserted": 0,
+                "message": "No alerts found for the specified locations"
+            }), 200
+        
+        # Insert into database
+        with lakebase.get_connection() as conn:
+            inserted_count = batch_insert_alerts_to_lakebase(
+                alerts=all_alerts,
+                conn=conn,
+                alert_table="weather_alert_documents"
+            )
+        
+        logger.info(f"Sync complete: {len(all_alerts)} fetched, {inserted_count} inserted")
+        
+        return jsonify({
+            "success": True,
+            "alerts_fetched": len(all_alerts),
+            "alerts_inserted": inserted_count,
+            "message": f"Successfully synced weather alerts"
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error in sync endpoint: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
-def perform_search(query: str, top_k: int, embedding_model) -> Tuple[Optional[List[Dict[str, Any]]], Optional[str]]:
+
+@app.route('/weather/search', methods=['POST'])
+def search_weather_alerts():
     """
     Search weather alerts using semantic similarity.
     
-    Args:
-        query: Search query text
-        top_k: Number of results to return (1-20)
-        embedding_model: Pre-loaded SentenceTransformer model
+    Request body:
+    {
+        "query": "tornado warnings in texas",
+        "top_k": 5
+    }
     
     Returns:
-        Tuple of (results_list, error_message)
+    {
+        "success": true,
+        "query": "tornado warnings in texas",
+        "results": [
+            {
+                "id": "alert_123",
+                "location": "Austin, TX",
+                "headline": "Tornado Warning",
+                "chunk_text": "...",
+                "similarity": 0.85
+            }
+        ],
+        "count": 5
+    }
     """
     try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                "success": False,
+                "error": "Request body must be JSON"
+            }), 400
+        
+        query = data.get('query', '').strip()
+        top_k = data.get('top_k', 5)
+        
         # Validate inputs
-        if not query or not query.strip():
-            return None, "Query cannot be empty"
+        if not query:
+            return jsonify({
+                "success": False,
+                "error": "Query cannot be empty"
+            }), 400
         
         # Clamp top_k
         top_k = max(1, min(20, int(top_k)))
         
         # Embed the query
         query_embedding = embedding_model.encode(query)
-        
-        # Convert numpy array to list for PostgreSQL
         embedding_list = query_embedding.tolist()
-        
-        # Format embedding as PostgreSQL array string
         embedding_str = '[' + ','.join(map(str, embedding_list)) + ']'
         
-        # Connect to database and execute search
-        try:
-            with lakebase.get_connection() as conn:
-                with conn.cursor() as cursor:
-                    # Cosine similarity search using pgvector <=> operator
-                    search_query = """
-                        SELECT 
-                            d.id,
-                            d.location, 
-                            d.headline, 
-                            TRIM(CONCAT(COALESCE(d.description, ''), '. ', COALESCE(d.instruction, ''))) AS embedding_text,
-                            e.chunk_text,
-                            1 - (e.embedding <=> %s::vector) AS similarity
-                        FROM weather_alert_embeddings e
-                        JOIN weather_alert_documents d ON d.id = e.alert_id
-                        ORDER BY e.embedding <=> %s::vector
-                        LIMIT %s;
-                    """
-                    
-                    cursor.execute(search_query, (embedding_str, embedding_str, top_k))
-                    rows = cursor.fetchall()
-                    
-                    # Handle empty results
-                    if not rows:
-                        return [], "No results found. The weather_embeddings table may be empty or no data has been synced yet."
-                    
-                    # Format results
-                    # Note: lakebase.get_connection() uses RealDictCursor, so rows are dictionaries
-                    results = []
-                    for row in rows:
-                        results.append({
-                            "id": row['id'],
-                            "location": row['location'],
-                            "headline": row['headline'],
-                            "narrative_text": row['embedding_text'],
-                            "chunk_text": row['chunk_text'],
-                            "similarity": float(row['similarity'])
-                        })
-                    
-                    return results, None
-            
-        except psycopg2.Error as db_error:
-            return None, f"Database query failed: {str(db_error)}"
-    
-    except Exception as e:
-        return None, f"Internal server error: {str(e)}"
-
-
-# Main Streamlit UI
-def main():
-    # Load model (cached)
-    embedding_model = load_embedding_model()
-    
-    # Header
-    st.title("🌦️ Weather Retrieval Service")
-    st.markdown("Semantic search over weather alerts using vector embeddings.")
-    
-    # Sidebar for health info
-    with st.sidebar:
-        st.header("ℹ️ Service Info")
-        st.success("✅ Service Healthy")
-        st.info("Model: all-MiniLM-L6-v2")
-        st.markdown("---")
-        st.markdown("""
-        ### How it works
-        1. Enter your search query
-        2. Adjust the number of results
-        3. Click Search
-        4. View matching weather alerts
-        """)
-    
-    # Main search interface
-    st.header("🔍 Search Weather Alerts")
-    
-    # Input form
-    with st.form("search_form"):
-        query = st.text_input(
-            "Query",
-            placeholder="e.g., risk of flooding near rivers",
-            value="risk of flooding near rivers"
-        )
-        
-        top_k = st.slider(
-            "Number of Results",
-            min_value=1,
-            max_value=20,
-            value=5
-        )
-        
-        submit_button = st.form_submit_button("Search 🔍")
-    
-    # Perform search when button is clicked
-    if submit_button:
-        if not query.strip():
-            st.error("❌ Query cannot be empty")
-        else:
-            with st.spinner("🔍 Searching..."):
-                results, error = perform_search(query, top_k, embedding_model)
+        # Search database
+        with lakebase.get_connection() as conn:
+            with conn.cursor() as cursor:
+                search_query = """
+                    SELECT 
+                        d.id,
+                        d.location, 
+                        d.headline,
+                        e.chunk_text,
+                        1 - (e.embedding <=> %s::vector) AS similarity
+                    FROM weather_alert_embeddings e
+                    JOIN weather_alert_documents d ON d.id = e.alert_id
+                    ORDER BY e.embedding <=> %s::vector
+                    LIMIT %s;
+                """
                 
-                if error:
-                    st.error(f"❌ {error}")
-                elif not results:
-                    st.warning("⚠️ No results found")
-                else:
-                    st.success(f"✅ Found {len(results)} result(s)")
-                    
-                    # Display results
-                    for i, result in enumerate(results, 1):
-                        with st.expander(f"Result {i}: {result['headline']} (Similarity: {result['similarity']:.3f})"):
-                            col1, col2 = st.columns([1, 3])
-                            
-                            with col1:
-                                st.metric("Similarity", f"{result['similarity']:.3f}")
-                                st.caption(f"**ID:** {result['id']}")
-                                st.caption(f"**Location:** {result['location']}")
-                            
-                            with col2:
-                                st.markdown(f"**Headline:** {result['headline']}")
-                                st.markdown(f"**Narrative:** {result['narrative_text']}")
-                                with st.container():
-                                    st.markdown("**Relevant Chunk:**")
-                                    st.text_area(
-                                        "Chunk",
-                                        value=result['chunk_text'],
-                                        height=100,
-                                        label_visibility="collapsed",
-                                        key=f"chunk_{i}"
-                                    )
+                cursor.execute(search_query, (embedding_str, embedding_str, top_k))
+                rows = cursor.fetchall()
+        
+        # Format results
+        results = []
+        for row in rows:
+            results.append({
+                "id": row['id'],
+                "location": row['location'],
+                "headline": row['headline'],
+                "chunk_text": row['chunk_text'],
+                "similarity": float(row['similarity'])
+            })
+        
+        logger.info(f"Search completed: query='{query}', results={len(results)}")
+        
+        return jsonify({
+            "success": True,
+            "query": query,
+            "results": results,
+            "count": len(results)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error in search endpoint: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
