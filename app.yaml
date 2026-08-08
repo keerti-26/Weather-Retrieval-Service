@@ -1,11 +1,10 @@
 command:
-  - "python"
+  - "streamlit"
+  - "run"
   - "app.py"
-
-health_probe:
-  http:
-    path: "/health"
-    port: 8080
+  - "--server.port=$APP_PORT"
+  - "--server.address=0.0.0.0"
+  - "--server.headless=true"
 
 env:
   - name: LAKEBASE_SECRET_SCOPE
