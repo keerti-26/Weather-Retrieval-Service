@@ -112,7 +112,7 @@ def perform_search(query: str, top_k: int, embedding_model) -> Tuple[Optional[Li
                     e.chunk_text,
                     1 - (e.embedding <=> %s::vector) AS similarity
                 FROM weather_alert_embeddings e
-                JOIN weather_alert_documents d ON d.id = e.document_id
+                JOIN weather_alert_documents d ON d.id = e.alert_id
                 ORDER BY e.embedding <=> %s::vector
                 LIMIT %s;
             """
