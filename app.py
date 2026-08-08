@@ -54,19 +54,6 @@ def health_check():
     return jsonify({"status": "healthy", "model": "all-MiniLM-L6-v2"}), 200
 
 
-@app.route('/', methods=['GET'])
-def home():
-    """Root endpoint."""
-    return jsonify({
-        "service": "Weather Retrieval Service",
-        "status": "running",
-        "endpoints": {
-            "health": "/health",
-            "search": "/weather/search (POST)"
-        }
-    }), 200
-
-
 @app.route('/weather/search', methods=['POST'])
 def search_weather():
     """
