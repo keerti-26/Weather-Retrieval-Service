@@ -2,6 +2,11 @@ command:
   - "python"
   - "app.py"
 
+health_probe:
+  http:
+    path: "/health"
+    port: 8080
+
 env:
   - name: LAKEBASE_SECRET_SCOPE
     value: "database"
