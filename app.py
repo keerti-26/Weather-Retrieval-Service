@@ -106,7 +106,7 @@ def syn_weather_alerts():
             )
         logger.info(f"Synced to Lakebase{len(all_alerts)}, Inserted count {inserted_count}")
         return jsonify({
-            "success",: True,
+            "success": True,
             "alerts_fetched": len(all_alerts),
             "alerts_inserted": inserted_count,
             "message": "Successfully synced weather alerts"
