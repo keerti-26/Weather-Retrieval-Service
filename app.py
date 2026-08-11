@@ -50,7 +50,7 @@ def health_check():
     }), 200
 
 @app.route('/weather/sync', methods=['POST'])
-def syn_weather_alerts():
+def sync_weather_alerts():
     """
     Sync weather alerts from NWS API into Lakebase.
     
@@ -111,8 +111,13 @@ def syn_weather_alerts():
             "alerts_inserted": inserted_count,
             "message": "Successfully synced weather alerts"
         }), 200
-
-                
+    except Exception as e:
+        logger.error(f"Error syncing weather alerts:{e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        })
+               
 
 @app.route('/weather/search', methods=['POST'])
 def search_weather_alerts():
