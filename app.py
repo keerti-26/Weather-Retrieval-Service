@@ -3,7 +3,7 @@ import os
 import logging
 from typing import Dict, Any, List, Tuple
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
@@ -36,6 +36,9 @@ embedding_model = SentenceTransformer(
 )
 logger.info("Embedding model loaded successfully")
 
+@app.route('/', methods=['GET'])
+def index():
+    return render_template("index.html")
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -45,91 +48,6 @@ def health_check():
         "service": "Weather Retrieval Service",
         "model": "sentence-transformers/all-MiniLM-L6-v2"
     }), 200
-
-
-@app.route('/weather/sync', methods=['POST'])
-def sync_weather_alerts():
-    """
-    Sync weather alerts from NWS API into Lakebase.
-    
-    Request body:
-    {
-        "cities": ["Boston, MA", "Austin, TX", "New York, NY"],
-        "state_codes": ["MA", "TX"]  # optional, alternative to cities
-    }
-    
-    Returns:
-    {
-        "success": true,
-        "alerts_fetched": 15,
-        "alerts_inserted": 12,
-        "message": "Successfully synced weather alerts"
-    }
-    """
-    try:
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({
-                "success": False,
-                "error": "Request body must be JSON"
-            }), 400
-        
-        cities = data.get('cities', [])
-        state_codes = data.get('state_codes', [])
-        
-        if not cities and not state_codes:
-            return jsonify({
-                "success": False,
-                "error": "Must provide either 'cities' or 'state_codes'"
-            }), 400
-        
-        # Fetch alerts
-        all_alerts = []
-        
-        if cities:
-            logger.info(f"Fetching alerts for {len(cities)} cities")
-            all_alerts.extend(nws_client.fetch_alerts_for_cities(cities))
-        
-        if state_codes:
-            logger.info(f"Fetching alerts for {len(state_codes)} state codes")
-            for state_code in state_codes:
-                alerts = nws_client.fetch_active_alerts(state_code)
-                normalized = nws_client.normalize_alerts_for_db(state_code, alerts)
-                all_alerts.extend(normalized)
-        
-        if not all_alerts:
-            return jsonify({
-                "success": True,
-                "alerts_fetched": 0,
-                "alerts_inserted": 0,
-                "message": "No alerts found for the specified locations"
-            }), 200
-        
-        # Insert into database
-        with lakebase.get_connection() as conn:
-            inserted_count = batch_insert_alerts_to_lakebase(
-                alerts=all_alerts,
-                conn=conn,
-                alert_table="weather_alert_documents"
-            )
-        
-        logger.info(f"Sync complete: {len(all_alerts)} fetched, {inserted_count} inserted")
-        
-        return jsonify({
-            "success": True,
-            "alerts_fetched": len(all_alerts),
-            "alerts_inserted": inserted_count,
-            "message": f"Successfully synced weather alerts"
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"Error in sync endpoint: {e}", exc_info=True)
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
-
 
 @app.route('/weather/search', methods=['POST'])
 def search_weather_alerts():
@@ -167,69 +85,66 @@ def search_weather_alerts():
                 "error": "Request body must be JSON"
             }), 400
         
-        query = data.get('query', '').strip()
-        top_k = data.get('top_k', 5)
-        
-        # Validate inputs
+        query = data.get("query")
+        top_k = data.get("top_k")
         if not query:
             return jsonify({
                 "success": False,
-                "error": "Query cannot be empty"
+                "error": "Query cant be empty"
             }), 400
-        
+         
         # Clamp top_k
         top_k = max(1, min(20, int(top_k)))
-        
         # Embed the query
-        query_embedding = embedding_model.encode(query)
-        embedding_list = query_embedding.tolist()
+        query_embeddings = embedding_model.encode(query)
+        embedding_list = query_embeddings.tolist()
         embedding_str = '[' + ','.join(map(str, embedding_list)) + ']'
-        
-        # Search database
+
+        #Search lakebase
         with lakebase.get_connection() as conn:
-            with conn.cursor() as cursor:
-                search_query = """
-                    SELECT 
-                        d.id,
-                        d.location, 
+            with conn.cursor() as cur:
+                try:
+                    search_query = """
+                    Select d.id,
+                        d.location,
                         d.headline,
                         e.chunk_text,
-                        1 - (e.embedding <=> %s::vector) AS similarity
-                    FROM weather_alert_embeddings e
-                    JOIN weather_alert_documents d ON d.id = e.alert_id
-                    ORDER BY e.embedding <=> %s::vector
-                    LIMIT %s;
-                """
-                
-                cursor.execute(search_query, (embedding_str, embedding_str, top_k))
-                rows = cursor.fetchall()
-        
-        # Format results
+                        1- (e.embedding <=> %s::vector) as similarity
+                    from weather_alert_embeddings as e
+                    join weather_alert_documents as d
+                    on e.alert_id = d.id
+                    order by e.embedding <=> %s::vector
+                    limit %s
+                    """
+                    cur.execute(search_query, (embedding_str, embedding_str, top_k))
+                    rows = cur.fetchall()
+                except Exception as db_error:
+                    logger.error(f"Database query error: {db_error}")
+                    raise
         results = []
         for row in rows:
             results.append({
-                "id": row['id'],
-                "location": row['location'],
-                "headline": row['headline'],
-                "chunk_text": row['chunk_text'],
-                "similarity": float(row['similarity'])
+                "id": row["id"],
+                "location": row["location"],
+                "headline": row["headline"],
+                "chunk_text": row["chunk_text"],
+                "similarity": float(row["similarity"])
+
             })
-        
-        logger.info(f"Search completed: query='{query}', results={len(results)}")
-        
         return jsonify({
             "success": True,
             "query": query,
             "results": results,
             "count": len(results)
-        }), 200
-        
+        }),200
     except Exception as e:
-        logger.error(f"Error in search endpoint: {e}", exc_info=True)
+        logger.error(f"Error in the endpoint:{e}", exc_info=True)
         return jsonify({
             "success": False,
             "error": str(e)
         }), 500
+            
+
 
 
 if __name__ == '__main__':

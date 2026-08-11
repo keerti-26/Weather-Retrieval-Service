@@ -1,82 +1,284 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Weather Retrieval Service</title>
-    <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
-        h1 { color: #FF3621; }
-        .endpoint { background: #f4f4f4; padding: 15px; margin: 10px 0; border-radius: 5px; }
-        .method { color: #0066cc; font-weight: bold; }
-        code { background: #e8e8e8; padding: 2px 6px; border-radius: 3px; }
-        .test-form { background: #fff3cd; padding: 20px; border-radius: 5px; margin-top: 20px; }
-        input, textarea { width: 100%; padding: 8px; margin: 5px 0; box-sizing: border-box; }
-        button { background: #FF3621; color: white; padding: 10px 20px; border: none; cursor: pointer; border-radius: 4px; }
-        button:hover { background: #cc2b1a; }
-        #result { background: #d4edda; padding: 15px; margin-top: 10px; border-radius: 5px; display: none; }
-        pre { white-space: pre-wrap; word-wrap: break-word; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Weather Alerts Search</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --border: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --danger: #f87171;
+    --success: #4ade80;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 32px 16px;
+  }
+  .wrap {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 22px;
+    margin-bottom: 4px;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 14px;
+    margin-bottom: 24px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    margin-bottom: 20px;
+  }
+  .card h2 {
+    font-size: 15px;
+    margin: 0 0 12px 0;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  input[type="text"], input[type="number"] {
+    background: #0b1222;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  #searchQuery { flex: 1; min-width: 200px; }
+  #topK { width: 80px; }
+  #syncCities { flex: 1; min-width: 200px; }
+  #syncStates { width: 140px; }
+  button {
+    background: var(--accent);
+    border: none;
+    color: #0b1222;
+    padding: 10px 18px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .hint {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 8px;
+  }
+  .status {
+    margin-top: 10px;
+    font-size: 13px;
+    display: none;
+  }
+  .status.error { color: var(--danger); display: block; }
+  .status.success { color: var(--success); display: block; }
+  .results {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .result {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    background: #0b1222;
+  }
+  .result-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .result-headline {
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .result-location {
+    color: var(--accent);
+    font-size: 12px;
+  }
+  .result-sim {
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .result-chunk {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .empty {
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+    padding: 12px;
+  }
+</style>
 </head>
 <body>
-    <h1>🌦️ Weather Retrieval Service</h1>
-    <p>Semantic search over weather alerts using vector embeddings.</p>
-    
-    <h2>Available Endpoints</h2>
-    
-    <div class="endpoint">
-        <span class="method">GET</span> <code>/health</code>
-        <p>Health check endpoint - returns service status and model info</p>
+<div class="wrap">
+  <h1>Weather Alerts Search</h1>
+  <div class="subtitle">Semantic search over NWS alerts synced into Lakebase</div>
+ 
+  <div class="card">
+    <h2>Sync alerts</h2>
+    <div class="row">
+      <input type="text" id="syncCities" placeholder='Cities, comma-separated (e.g. Boston, MA; Austin, TX)'>
+      <input type="text" id="syncStates" placeholder="State codes (e.g. MA, TX)">
+      <button id="syncBtn">Sync</button>
     </div>
-    
-    <div class="endpoint">
-        <span class="method">POST</span> <code>/weather/search</code>
-        <p>Semantic search endpoint</p>
-        <p><strong>Body:</strong> <code>{"query": "your search text", "top_k": 5}</code></p>
-        <p><strong>Returns:</strong> Top matching weather alerts with similarity scores</p>
+    <div class="hint">Provide cities and/or state codes. At least one is required.</div>
+    <div class="status" id="syncStatus"></div>
+  </div>
+ 
+  <div class="card">
+    <h2>Search</h2>
+    <div class="row">
+      <input type="text" id="searchQuery" placeholder="e.g. tornado warnings in texas">
+      <input type="number" id="topK" value="5" min="1" max="20">
+      <button id="searchBtn">Search</button>
     </div>
-    
-    <div class="test-form">
-        <h3>🧪 Test Search Endpoint</h3>
-        <label>Query:</label>
-        <input type="text" id="query" placeholder="e.g., risk of flooding near rivers" value="risk of flooding near rivers">
-        
-        <label>Top K Results:</label>
-        <input type="number" id="top_k" value="5" min="1" max="20">
-        
-        <button onclick="testSearch()">Search</button>
-        
-        <div id="result"></div>
-    </div>
-    
-    <script>
-        async function testSearch() {
-            const query = document.getElementById('query').value;
-            const top_k = parseInt(document.getElementById('top_k').value);
-            const resultDiv = document.getElementById('result');
-            
-            resultDiv.style.display = 'block';
-            resultDiv.innerHTML = 'Searching...';
-            
-            try {
-                const response = await fetch('/weather/search', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query, top_k })
-                });
-                
-                const data = await response.json();
-                
-                if (response.ok) {
-                    resultDiv.style.background = '#d4edda';
-                    resultDiv.innerHTML = '<h4>Results:</h4><pre>' + JSON.stringify(data, null, 2) + '</pre>';
-                } else {
-                    resultDiv.style.background = '#f8d7da';
-                    resultDiv.innerHTML = '<h4>Error:</h4><pre>' + JSON.stringify(data, null, 2) + '</pre>';
-                }
-            } catch (error) {
-                resultDiv.style.background = '#f8d7da';
-                resultDiv.innerHTML = '<h4>Error:</h4><span style="color: red;">' + error.message + '</span>';
-            }
-        }
-    </script>
+    <div class="status" id="searchStatus"></div>
+    <div class="results" id="results"></div>
+  </div>
+</div>
+ 
+<script>
+const syncBtn = document.getElementById('syncBtn');
+const syncStatus = document.getElementById('syncStatus');
+const searchBtn = document.getElementById('searchBtn');
+const searchStatus = document.getElementById('searchStatus');
+const resultsEl = document.getElementById('results');
+ 
+function setStatus(el, message, kind) {
+  el.textContent = message;
+  el.className = 'status ' + (kind || '');
+}
+ 
+function splitList(value) {
+  return value.split(',').map(s => s.trim()).filter(Boolean);
+}
+ 
+async function syncAlerts() {
+  const cities = splitList(document.getElementById('syncCities').value);
+  const stateCodes = splitList(document.getElementById('syncStates').value);
+ 
+  if (cities.length === 0 && stateCodes.length === 0) {
+    setStatus(syncStatus, 'Provide at least one city or state code.', 'error');
+    return;
+  }
+ 
+  syncBtn.disabled = true;
+  setStatus(syncStatus, 'Syncing...', '');
+ 
+  try {
+    const res = await fetch('/weather/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cities, state_codes: stateCodes })
+    });
+    const data = await res.json();
+ 
+    if (!res.ok || !data.success) {
+      setStatus(syncStatus, data.error || 'Sync failed.', 'error');
+    } else {
+      setStatus(
+        syncStatus,
+        `Fetched ${data.alerts_fetched}, inserted ${data.alerts_inserted}.`,
+        'success'
+      );
+    }
+  } catch (err) {
+    setStatus(syncStatus, 'Network error during sync.', 'error');
+  } finally {
+    syncBtn.disabled = false;
+  }
+}
+ 
+async function searchAlerts() {
+  const query = document.getElementById('searchQuery').value.trim();
+  const topK = parseInt(document.getElementById('topK').value, 10) || 5;
+ 
+  if (!query) {
+    setStatus(searchStatus, 'Enter a search query.', 'error');
+    return;
+  }
+ 
+  searchBtn.disabled = true;
+  setStatus(searchStatus, 'Searching...', '');
+  resultsEl.innerHTML = '';
+ 
+  try {
+    const res = await fetch('/weather/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, top_k: topK })
+    });
+    const data = await res.json();
+ 
+    if (!res.ok || !data.success) {
+      setStatus(searchStatus, data.error || 'Search failed.', 'error');
+      return;
+    }
+ 
+    setStatus(searchStatus, `${data.count} result(s) for "${data.query}"`, 'success');
+ 
+    if (data.results.length === 0) {
+      resultsEl.innerHTML = '<div class="empty">No matching alerts found.</div>';
+      return;
+    }
+ 
+    resultsEl.innerHTML = data.results.map(r => `
+      <div class="result">
+        <div class="result-top">
+          <div>
+            <div class="result-headline">${escapeHtml(r.headline || 'Untitled alert')}</div>
+            <div class="result-location">${escapeHtml(r.location || '')}</div>
+          </div>
+          <div class="result-sim">${(r.similarity * 100).toFixed(1)}% match</div>
+        </div>
+        <div class="result-chunk">${escapeHtml(r.chunk_text || '')}</div>
+      </div>
+    `).join('');
+  } catch (err) {
+    setStatus(searchStatus, 'Network error during search.', 'error');
+  } finally {
+    searchBtn.disabled = false;
+  }
+}
+ 
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+ 
+syncBtn.addEventListener('click', syncAlerts);
+searchBtn.addEventListener('click', searchAlerts);
+document.getElementById('searchQuery').addEventListener('keydown', e => {
+  if (e.key === 'Enter') searchAlerts();
+});
+</script>
 </body>
 </html>
