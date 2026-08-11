@@ -49,6 +49,71 @@ def health_check():
         "model": "sentence-transformers/all-MiniLM-L6-v2"
     }), 200
 
+@app.route('/weather/sync', methods=['POST'])
+def syn_weather_alerts():
+    """
+    Sync weather alerts from NWS API into Lakebase.
+    
+    Request body:
+    {
+        "cities": ["Boston, MA", "Austin, TX", "New York, NY"],
+        "state_codes": ["MA", "TX"]  # optional, alternative to cities
+    }
+    
+    Returns:
+    {
+        "success": true,
+        "alerts_fetched": 15,
+        "alerts_inserted": 12,
+        "message": "Successfully synced weather alerts"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return({
+                "success": False,
+                "error": "Request body is empty"
+            }), 400
+        cities = data.get(cities, [])
+        state_codes = data.get(state_codes, [])
+        if not cities and not state:
+            return jsonify({
+                "success": False,
+                "error": "Must provide either cities or state_code"
+            }), 400
+        all_alerts = []
+        if cities:
+            logger.info(f"Fetching  alerts for {len(cities)} cities")
+            all_alerts.extend(nws_client.fetch_alert_for_cities(cities))
+        if state_codes:
+            logger.info(f"fetching alerts for{len(state_codes)} states codes")
+            all_alerts.extend(nws_client.fetch_alert_for_cities(state_codes))
+        if not all_alerts:
+            return jsonify(
+                {
+                    "success": True,
+                    "alerts_fetched": 0,
+                    "alerts_inserted": 0,
+                    "message": "No alerts found for specified location"
+                }), 200
+
+        with lakebase.get_connection() as conn:
+            inserted_count = batch_insert_alerts_to_lakebase(
+                alerts = all_alerts,
+                conn = conn,
+                alert_table = "weather_alerts_documents"
+            )
+        logger.info(f"Synced to Lakebase{len(all_alerts)}, Inserted count {inserted_count}")
+        return jsonify({
+            "success",: True,
+            "alerts_fetched": len(all_alerts),
+            "alerts_inserted": inserted_count,
+            "message": "Successfully synced weather alerts"
+        }), 200
+
+                
+
 @app.route('/weather/search', methods=['POST'])
 def search_weather_alerts():
     """
