@@ -85,7 +85,7 @@ def sync_weather_alerts():
         all_alerts = []
         if cities:
             logger.info(f"Fetching  alerts for {len(cities)} cities")
-            all_alerts.extend(nws_client.fetch_alert_for_cities(cities))
+            all_alerts.extend(nws_client.fetch_alerts_for_cities(cities))
         if state_codes:
             logger.info(f"fetching alerts for{len(state_codes)} states codes")
             all_alerts.extend(nws_client.fetch_alerts_for_cities(state_codes))
