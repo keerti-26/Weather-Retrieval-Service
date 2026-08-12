@@ -71,13 +71,13 @@ def sync_weather_alerts():
     try:
         data = request.get_json()
         if not data:
-            return({
+            return jsonify({
                 "success": False,
                 "error": "Request body is empty"
             }), 400
-        cities = data.get("cities", [])
-        state_codes = data.get("state_codes", [])
-        if not cities and not state:
+        cities = data.get('cities', [])
+        state_codes = data.get('state_codes', [])
+        if not cities and not state_codes:
             return jsonify({
                 "success": False,
                 "error": "Must provide either cities or state_code"
@@ -87,8 +87,8 @@ def sync_weather_alerts():
             logger.info(f"Fetching  alerts for {len(cities)} cities")
             all_alerts.extend(nws_client.fetch_alerts_for_cities(cities))
         if state_codes:
-            logger.info(f"fetching alerts for{len(state_codes)} states codes")
-            all_alerts.extend(nws_client.fetch_alerts_for_cities(state_codes))
+            logger.info(f"fetching alerts for {len(state_codes)} state codes")
+            all_alerts.extend(nws_client.fetch_alerts_for_states(state_codes))
         if not all_alerts:
             return jsonify(
                 {
@@ -112,11 +112,11 @@ def sync_weather_alerts():
             "message": "Successfully synced weather alerts"
         }), 200
     except Exception as e:
-        logger.error(f"Error syncing weather alerts:{e}")
+        logger.error(f"Error syncing weather alerts: {e}", exc_info=True)
         return jsonify({
             "success": False,
             "error": str(e)
-        })
+        }), 500
                
 
 @app.route('/weather/search', methods=['POST'])
