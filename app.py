@@ -75,8 +75,8 @@ def sync_weather_alerts():
                 "success": False,
                 "error": "Request body is empty"
             }), 400
-        cities = data.get(cities, [])
-        state_codes = data.get(state_codes, [])
+        cities = data.get("cities", [])
+        state_codes = data.get("state_codes", [])
         if not cities and not state:
             return jsonify({
                 "success": False,
