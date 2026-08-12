@@ -102,7 +102,7 @@ def sync_weather_alerts():
             inserted_count = batch_insert_alerts_to_lakebase(
                 alerts = all_alerts,
                 conn = conn,
-                alert_table = "weather_alerts_documents"
+                alert_table = "weather_alert_documents"
             )
         logger.info(f"Synced to Lakebase{len(all_alerts)}, Inserted count {inserted_count}")
         return jsonify({
