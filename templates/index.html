@@ -177,7 +177,7 @@ function setStatus(el, message, kind) {
 }
  
 function splitList(value) {
-  return value.split(',').map(s => s.trim()).filter(Boolean);
+  return value.split(';').map(s => s.trim()).filter(Boolean);
 }
  
 async function syncAlerts() {
