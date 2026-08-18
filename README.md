@@ -91,6 +91,20 @@ predict_umbrella_needed_by_location("Denver, CO", date(2026, 8, 19))
 
 ### Deployment
 
+#### Transport Protocol
+
+This MCP server uses **HTTP transport** (`transport="http"`) over standard HTTP/1.1, which is compatible with Databricks Apps and Agent Bricks. FastMCP's HTTP transport supports:
+- JSON-RPC 2.0 protocol (MCP standard)
+- SSE (Server-Sent Events) for streaming responses
+- Full MCP tool discovery and execution
+
+**In `weather_mcp_server.py`:**
+```python
+mcp.run(transport="http", host="0.0.0.0", port=port)
+```
+
+This configuration exposes the MCP server over HTTP on the port specified by Databricks Apps (`DATABRICKS_APP_PORT` environment variable). Agent Bricks connects via the app URL and communicates using the MCP protocol.
+
 #### 1. Deploy MCP Server as Databricks App
 
 ```bash
@@ -108,6 +122,12 @@ databricks apps get weather-mcp-server
 ```
 
 The MCP server will be available at the app URL (e.g., `https://<workspace>.cloud.databricks.com/apps/weather-mcp-server`).
+
+**Deployment Files:**
+- **`mcp_server/requirements.txt`**: FastMCP, Starlette, database drivers, ML models
+- **`mcp_server/app.yaml`**: Databricks Apps configuration with environment variables and Python command
+- **`mcp_server/weather_mcp_server.py`**: Main MCP server with 3 tools
+- **`mcp_server/weather_broker.py`**: Database adapter for separating data access logic
 
 #### 2. Register as External Tool in Agent Bricks
 
@@ -198,6 +218,38 @@ See `SYSTEM_PROMPT.md` for the complete agent system prompt with:
 - Supported cities and location handling
 - Example conversation workflows
 - 40% precipitation threshold explanation
+
+### Demonstration & Evidence
+
+For complete project documentation and grading evidence:
+
+1. **`DEMONSTRATION.md`** - 6 example interactions showing:
+   - Natural language queries
+   - Tool calls with parameters
+   - Structured JSON responses
+   - Agent's final answers
+   - Error handling examples
+   - Compliance with system prompt guidelines
+
+2. **`AGENT_REGISTRATION_GUIDE.md`** - Step-by-step instructions to:
+   - Register MCP server in Agent Bricks
+   - Create weather assistant agent
+   - Attach tools and system prompt
+   - Capture screenshots for evidence
+   - Troubleshoot common issues
+
+3. **`SECURITY_CHECKLIST.md`** - Pre-push security audit:
+   - Verifies no hardcoded credentials
+   - Documents safe vs. sensitive files
+   - Pre-commit checklist
+   - GitHub security best practices
+
+**Tool Response Format:**
+All tools return **structured dictionaries** (not strings), enabling reliable parsing by AI agents:
+- **Current weather**: `{"location": ..., "temperature": ..., "precipitation_prob": ...}`
+- **Forecast**: `{"forecasts": [{...}, {...}]}`
+- **Umbrella**: `{"recommendation": "yes"|"no", "reason": ..., "threshold": 40}`
+- **Errors**: `{"error": "..."}`
 
 ---
 

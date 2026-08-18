@@ -24,7 +24,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         return response
 
 @mcp.tool
-async def get_current_weather_by_location(city: str) -> str:
+async def get_current_weather_by_location(city: str) -> dict:
     """
     Get current weather conditions for a city.
     
@@ -32,17 +32,19 @@ async def get_current_weather_by_location(city: str) -> str:
         city: City name, e.g. "Boston, MA"
     
     Returns:
-        Current weather data including temperature, precipitation probability,
-        wind speed/direction, and detailed forecast. Returns error message if
-        no data found or city invalid.
+        Dictionary with keys: location, day, temperature, precipitation_prob,
+        wind_speed, wind_direction, detailed_forecast.
+        Returns error dict with 'error' key if no data found.
     """
     result = weather_broker.get_current_weather(city)
     if result is None:
-        return f"No current weather data found for {city}. Please check the city name and try again."
-    return str(result)
+        return {
+            "error": f"No current weather data found for {city}. Please check the city name and try again."
+        }
+    return result
 
 @mcp.tool
-async def get_weather_forecast_by_location(city: str, days: int = 7) -> str:
+async def get_weather_forecast_by_location(city: str, days: int = 7) -> dict:
     """
     Get weather forecast for a city for the next N days (1-7).
     
@@ -51,20 +53,36 @@ async def get_weather_forecast_by_location(city: str, days: int = 7) -> str:
         days: Number of days to forecast (1-7), defaults to 7
     
     Returns:
-        List of forecast periods with temperature, precipitation probability,
-        wind conditions, and detailed descriptions. Returns error message if
-        no data found or parameters invalid.
+        Dictionary with 'forecasts' key containing list of forecast periods.
+        Each period has: location, day, starttime, endtime, temperature,
+        precipitation_prob, wind_speed, wind_direction, detailed_forecast.
+        Returns error dict with 'error' key if invalid parameters or no data.
     """
     if days < 1 or days > 7:
-        return "Invalid days parameter. Must be between 1 and 7."
+        return {
+            "error": "Invalid days parameter. Must be between 1 and 7."
+        }
     
     result = weather_broker.get_forecast(city, days)
     if not result:
-        return f"No forecast data found for {city}. Please check the city name and try again."
-    return str(result)
+        return {
+            "error": f"No forecast data found for {city}. Please check the city name and try again."
+        }
+    
+    # Convert datetime objects to ISO format strings for JSON serialization
+    serialized_result = []
+    for period in result:
+        serialized_period = dict(period)  # Make a copy
+        if 'starttime' in serialized_period and serialized_period['starttime']:
+            serialized_period['starttime'] = serialized_period['starttime'].isoformat()
+        if 'endtime' in serialized_period and serialized_period['endtime']:
+            serialized_period['endtime'] = serialized_period['endtime'].isoformat()
+        serialized_result.append(serialized_period)
+    
+    return {"forecasts": serialized_result}
 
 @mcp.tool
-async def predict_umbrella_needed_by_location(city: str, date: date) -> str:
+async def predict_umbrella_needed_by_location(city: str, date: date) -> dict:
     """
     Predict whether an umbrella is needed for a city on a given date.
     
@@ -76,22 +94,42 @@ async def predict_umbrella_needed_by_location(city: str, date: date) -> str:
         date: Date to predict umbrella needed (YYYY-MM-DD format)
     
     Returns:
-        'Yes' if umbrella recommended (>40% precipitation probability),
-        'No' if not needed (≤40% precipitation),
-        'No data available' if no forecast exists,
-        'Error' if lookup failed.
+        Dictionary with keys:
+        - recommendation: "yes" or "no"
+        - reason: Explanation of the recommendation
+        - threshold: The 40% threshold used
+        - city: City queried
+        - date: Date queried (ISO format)
+        Returns error dict with 'error' key if no data or lookup failed.
     """
     result = weather_broker.predict_umbrella_needed(city, date)
+    date_str = date.isoformat() if isinstance(date, (date, datetime)) else str(date)
     
-    # Enhance response with explanation
+    # Return structured response with explanation
     if result == 'Yes':
-        return f"Yes - An umbrella is recommended for {city} on {date}. Precipitation probability exceeds 40%."
+        return {
+            "recommendation": "yes",
+            "reason": f"An umbrella is recommended for {city} on {date_str}. Precipitation probability exceeds 40%.",
+            "threshold": 40,
+            "city": city,
+            "date": date_str
+        }
     elif result == 'No':
-        return f"No - An umbrella is not needed for {city} on {date}. Precipitation probability is 40% or lower."
+        return {
+            "recommendation": "no",
+            "reason": f"An umbrella is not needed for {city} on {date_str}. Precipitation probability is 40% or lower.",
+            "threshold": 40,
+            "city": city,
+            "date": date_str
+        }
     elif result == 'No data available':
-        return f"No forecast data available for {city} on {date}. Unable to make prediction."
+        return {
+            "error": f"No forecast data available for {city} on {date_str}. Unable to make prediction."
+        }
     else:  # Error case
-        return f"Error retrieving forecast data for {city} on {date}. Please try again."
+        return {
+            "error": f"Error retrieving forecast data for {city} on {date_str}. Please try again."
+        }
 
 
 if __name__ == "__main__":
