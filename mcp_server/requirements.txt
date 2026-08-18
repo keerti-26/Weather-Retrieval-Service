@@ -1,0 +1,27 @@
+# MCP Server
+fastmcp>=0.2.0
+starlette>=0.27.0
+
+# Flask REST API
+flask>=2.3.0
+
+# Streamlit UI (optional)
+streamlit>=1.28.0
+
+# Database
+psycopg2-binary==2.9.9
+sqlalchemy>=2.0.0
+
+# ML & Embeddings
+numpy==1.26.4
+sentence-transformers==2.3.1
+torch==2.2.0
+transformers==4.36.0
+
+# Utilities
+requests==2.31.0
+geopy>=2.3.0
+pandas>=2.0.0
+
+# Databricks SDK
+databricks-sdk==0.20.0

@@ -1,0 +1,13 @@
+command:
+  - "python"
+  - "weather_mcp_server.py"
+
+env:
+  - name: LAKEBASE_SECRET_SCOPE
+    value: "database"
+  - name: LAKEBASE_SECRET_KEY
+    value: "lakebase-url"
+
+resources:
+  - name: requirements.txt
+    type: pip_requirements

@@ -161,7 +161,68 @@ def insert_embeddings_to_lakebase(
         if cursor:
             cursor.close()
 
-
+def batch_insert_forecasts_to_lakebase(
+    forecasts: List[Dict],
+    conn,
+    forecast_table: str = "weather_forecast"
+) -> int:
+    """
+    Batch insert weather forecasts into Lakebase using psycopg2.
+    
+    Args:
+        alerts: List of normalized alert dictionaries
+        conn: psycopg2 connection
+        alert_table: Name of the alerts table
+    
+    Returns:
+        Number of rows inserted
+    """
+    if not forecasts:
+        logger.warning("No forecasts to insert")
+        return 0
+    logger.info(f"Inserting {len(forecasts)} forecast into table {forecast_table}")
+    insert_data = [
+        (
+            forecast["id"],
+            forecast["location"],
+            forecast["number_counter"],
+            forecast["day"],
+            forecast["starttime"],
+            forecast["endtime"],
+            forecast["temperature"],
+            forecast["precipitation_prob"],
+            forecast["wind_speed"],
+            forecast["wind_direction"],
+            forecast["detailed_forecast"]
+        )
+        for forecast in forecasts
+    ]
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        insert_sql = f"""
+          Insert into {forecast_table}(
+            id, location, number_counter, day, starttime, endtime, temperature, precipitation_prob,wind_speed, wind_direction, detailed_forecast
+        ) VALUES(
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+        ) ON CONFLICT (id) DO NOTHING
+        """
+        cursor.executemany(insert_sql, insert_data)
+        conn.commit()
+        inserted_count = cursor.rowcount
+        logger.info(f"✅ Successfully inserted {inserted_count} new forecasts")
+        logger.info(f"   (Duplicates were skipped via ON CONFLICT DO NOTHING)")
+        
+        return inserted_count
+        
+    except psycopg2.Error as e:
+        conn.rollback()
+        logger.error(f"Database error inserting alerts: {e}")
+        raise
+    finally:
+        if cursor:
+            cursor.close()
+            
 def batch_insert_alerts_to_lakebase(
     alerts: List[Dict],
     conn,

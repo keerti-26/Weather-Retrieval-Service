@@ -3,6 +3,7 @@
 A semantic search system for weather alerts using pgvector, sentence-transformers, and Lakebase PostgreSQL.
 
 ## Table of Contents
+- [MCP Server](#mcp-server)
 - [Data Source Choice](#data-source-choice)
 - [Architecture](#architecture)
 - [Schema Design](#schema-design)
@@ -10,6 +11,193 @@ A semantic search system for weather alerts using pgvector, sentence-transformer
 - [Running the Pipeline](#running-the-pipeline)
 - [API Endpoints](#api-endpoints)
 - [Known Limitations](#known-limitations)
+
+---
+
+## MCP Server
+
+### Overview
+
+This project includes a Model Context Protocol (MCP) server that exposes weather data tools for AI agents. The server provides three core capabilities:
+
+1. **Current Weather** - Real-time conditions for a city
+2. **Weather Forecast** - Multi-day forecast (1-7 days)
+3. **Umbrella Prediction** - Smart recommendation based on precipitation probability
+
+### MCP Tools
+
+#### `get_current_weather_by_location(city: str)`
+Returns current weather conditions including temperature, precipitation probability, wind speed/direction, and detailed forecast.
+
+**Example:**
+```python
+# Tool call
+get_current_weather_by_location("Boston, MA")
+
+# Returns
+{
+  'location': 'Boston, MA',
+  'day': 'Tonight',
+  'temperature': 68,
+  'precipitation_prob': 29,
+  'wind_speed': '1 to 5 mph',
+  'wind_direction': 'NE',
+  'detailed_forecast': 'A chance of rain showers and patchy fog...'
+}
+```
+
+#### `get_weather_forecast_by_location(city: str, days: int = 7)`
+Returns multi-day forecast with high/low temperatures, precipitation chances, and conditions for each day/night period.
+
+**Parameters:**
+- `city`: City name (e.g., "Boston, MA")
+- `days`: Number of days (1-7, defaults to 7)
+
+**Example:**
+```python
+# Tool call
+get_weather_forecast_by_location("Austin, TX", days=3)
+
+# Returns list of forecast periods
+[
+  {
+    'location': 'Austin, TX',
+    'day': 'Tuesday',
+    'starttime': datetime(2026, 8, 18, 6, 0),
+    'temperature': 95,
+    'precipitation_prob': 10,
+    ...
+  },
+  ...
+]
+```
+
+#### `predict_umbrella_needed_by_location(city: str, date: date)`
+Predicts whether an umbrella is needed based on a 40% precipitation probability threshold.
+
+**Logic:**
+- Returns "Yes" if max precipitation probability > 40%
+- Returns "No" if precipitation probability ≤ 40%
+- Returns error message if no forecast data available
+
+**Example:**
+```python
+# Tool call
+predict_umbrella_needed_by_location("Denver, CO", date(2026, 8, 19))
+
+# Returns
+"Yes - An umbrella is recommended for Denver, CO on 2026-08-19. Precipitation probability exceeds 40%."
+```
+
+### Deployment
+
+#### 1. Deploy MCP Server as Databricks App
+
+```bash
+# Navigate to mcp_server directory
+cd mcp_server
+
+# Deploy the app
+databricks apps deploy weather-mcp-server --source-code-path .
+
+# Start the app
+databricks apps start weather-mcp-server
+
+# Get app URL and status
+databricks apps get weather-mcp-server
+```
+
+The MCP server will be available at the app URL (e.g., `https://<workspace>.cloud.databricks.com/apps/weather-mcp-server`).
+
+#### 2. Register as External Tool in Agent Bricks
+
+1. Open **Agent Bricks** in your Databricks workspace
+2. Navigate to **External Tools** → **Add External Tool**
+3. Select **MCP Server**
+4. Enter the app URL from step 1
+5. The three tools will be automatically discovered and registered:
+   - `get_current_weather_by_location`
+   - `get_weather_forecast_by_location`
+   - `predict_umbrella_needed_by_location`
+
+#### 3. Create Agent with System Prompt
+
+1. Create a new agent in Agent Bricks
+2. Attach the registered MCP tools
+3. Use the system prompt from `SYSTEM_PROMPT.md`:
+   - Explains available tools and when to use each
+   - Defines error handling guidelines
+   - Specifies the 40% precipitation threshold for umbrella predictions
+   - Lists supported cities (Boston, Austin, New York, Denver, San Francisco)
+
+### Architecture
+
+```
+┌─────────────────────────┐
+│  Agent Bricks           │
+│  (Natural Language UI)  │
+└───────────┬─────────────┘
+            │
+            │ MCP Protocol
+            │
+┌───────────▼─────────────┐
+│  MCP Server             │
+│  (weather_mcp_server.py)│
+│                         │
+│  Tools:                 │
+│  - get_current_weather  │
+│  - get_forecast         │
+│  - predict_umbrella     │
+└───────────┬─────────────┘
+            │
+            │ Adapter calls
+            │
+┌───────────▼─────────────┐
+│  Weather Broker         │
+│  (weather_broker.py)    │
+│                         │
+│  - DB connection        │
+│  - Query logic          │
+│  - Error handling       │
+└───────────┬─────────────┘
+            │
+            │ SQL queries
+            │
+┌───────────▼─────────────┐
+│  Lakebase Postgres      │
+│                         │
+│  Tables:                │
+│  - weather_forecast     │
+│  - weather_alert_...    │
+└─────────────────────────┘
+```
+
+### Data Pipeline
+
+Weather forecast data is populated via the notebook:
+
+**Notebook:** `notebooks/ingest_weather_alert_report`
+
+**Cells 11-12:**
+- **Cell 11:** Fetches 7-day forecasts from NWS API for 5 cities
+- **Cell 12:** Inserts forecast data into `weather_forecast` table
+
+**Run the pipeline:**
+```bash
+# Open the notebook and run cells 1-4, 11-12
+# Or run all cells to also ingest weather alerts
+```
+
+**Forecast coverage:** Boston, Austin, New York, Denver, San Francisco (expandable)
+
+### System Prompt
+
+See `SYSTEM_PROMPT.md` for the complete agent system prompt with:
+- Tool descriptions and when to use each
+- Error handling guidelines
+- Supported cities and location handling
+- Example conversation workflows
+- 40% precipitation threshold explanation
 
 ---
 

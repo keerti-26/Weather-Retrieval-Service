@@ -49,6 +49,119 @@ class NWSClient:
             logger.error(f"Error geocoding city {city}: {e}")
             return None
     
+    def get_grid_details(self, city:str) -> Optional[Dict]:
+        """
+        Fetch current weather conditions for a given city.
+        
+        Args:
+            city: City name (e.g., "Boston, MA" or "San Francisco, CA")
+        
+        Returns:
+            Dictionary of weather conditions or None if not found
+        """
+        try:
+            coords = self.get_city_coordinates(city)
+            if coords:
+                logger.info(f"  Coordinates: {coords[0]}, {coords[1]}")
+                lat, long = coords[0], coords[1]
+                response = self.session.get(
+                    f"{self.base_url}/points/{lat},{long}"
+                )
+                response.raise_for_status()
+                grid_reponse = response.json().get("properties")
+                return grid_reponse
+        except Exception as e:
+            logger.error(f"Not able to get the grid details for {city}: {e}")
+            raise
+
+    def get_cities_forecast(self, cities:List[str]) -> List[Dict]:
+        """
+        Fetch current weather conditions for a given city.
+        
+        Args:
+            city: City name (e.g., "Boston, MA" or "San Francisco, CA")
+        
+        Returns:
+            Dictionary of weather conditions or None if not found
+        """
+        all_normalized_forecasts = []
+        
+        for city in cities:
+            try:
+                forecast = self.get_forecast(city)
+                normalized = self.normalize_forecast_for_db(city, forecast)
+                all_normalized_forecasts.extend(normalized)
+                logger.info(f"  Collected {len(normalized)} alerts from {city}")
+                
+            except Exception as e:
+                logger.error(f"Failed to process city {city}: {e}")
+                # Continue processing other cities even if one fails
+                continue
+        logger.info(f"Collected {len(all_normalized_forecasts)} alerts from {len(cities)} cities")
+        return all_normalized_forecasts
+
+
+    def get_forecast(self, city:str) -> List[Dict]:
+        """
+        Fetch current weather conditions for a given city.
+        
+        Args:
+            city: City name (e.g., "Boston, MA" or "San Francisco, CA")
+        
+        Returns:
+            Dictionary of weather conditions or None if not found
+        """
+        try:
+            grid_response = self.get_grid_details(city)
+            if grid_response:
+                grid_id, grid_x, grid_y = grid_response.get("gridId"), grid_response.get("gridX"), grid_response.get("gridY")
+                response = self.session.get(
+                    f"{self.base_url}/gridpoints/{grid_id}/{grid_x},{grid_y}/forecast"
+                )
+                response.raise_for_status()
+                forecast_response = response.json().get("properties").get("periods")
+        except Exception as e:
+            logger.error(f"Not able to get the forecast for {city}: {e}")
+            raise
+        return forecast_response
+
+    def normalize_forecast_for_db(self, city: str, forecasts: List[Dict]) -> List[Dict]:
+        """
+        Normalize alert data into database schema format.
+        
+        Args:
+            city: City name the alerts are associated with
+            alerts: Raw alert data from NWS API
+        
+        Returns:
+            List of dictionaries ready for database insertion
+        """
+        if not forecasts:
+            return []
+        
+        normalized = []
+        for forecast in forecasts:
+            try:
+                normalized.append({
+                    "id": city+"_"+str(forecast.get("startTime"))+"_"+str(forecast.get("endTime")),
+                    "location": city,
+                    "number_counter": forecast.get("number"),
+                    "day": forecast.get("name"),
+                    "starttime": forecast.get("startTime"),
+                    "endtime": forecast.get("endTime"),
+                    "temperature": forecast.get("temperature"),
+                    "precipitation_prob": forecast.get("probabilityOfPrecipitation")["value"],
+                    "wind_speed": forecast.get("windSpeed"),
+                    "wind_direction": forecast.get("windDirection"),
+                    "detailed_forecast": forecast.get("detailedForecast")
+                })
+            except Exception as e:
+                logger.warning(f"Error normalizing forecast for {city}: {e}")
+                continue
+        
+        logger.info(f"Normalized {len(normalized)} forecast for {city}")
+        return normalized
+    
     def fetch_active_alerts(self, state_code: str) -> List[Dict]:
         """
         Fetch active weather alerts for a given state.
@@ -125,7 +238,7 @@ class NWSClient:
         
         logger.info(f"Normalized {len(normalized)} alerts for {city}")
         return normalized
-    
+
     def fetch_alerts_for_cities(self, cities: List[str]) -> List[Dict]:
         """
         Fetch and normalize alerts for multiple cities.

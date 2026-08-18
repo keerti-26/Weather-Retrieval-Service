@@ -19,6 +19,11 @@ w.secrets.put_secret(
     string_value=getpass.getpass("Paste your Lakebase URL: ")
 )
 
+w.secrets.put_secret(
+    scope="massive",
+    key="api-key",
+    string_value=getpass.getpass("Paste your Massive API key: ")
+)
 
 w.secrets.put_acl(
     scope="database",
